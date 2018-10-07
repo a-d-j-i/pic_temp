@@ -21,7 +21,7 @@ extern "C" {
 #define SYS_FREQ 		(40000000L)
 #define	GetPeripheralClock()		(SYS_FREQ/(1 << OSCCONbits.PBDIV))
 #define	GetInstructionClock()		(SYS_FREQ)
-//#define BAUDRATEREG2        ((GetPeripheralClock()+(BRG_DIV2/2*BAUDRATE2))/BRG_DIV2/BAUDRATE2-1)
+    //#define BAUDRATEREG2        ((GetPeripheralClock()+(BRG_DIV2/2*BAUDRATE2))/BRG_DIV2/BAUDRATE2-1)
 #define BAUDRATE    57600   // serial baudrate
 
     void usbSerialInit(void);
@@ -30,6 +30,34 @@ extern "C" {
     unsigned int usbSerialGetchar(void);
     unsigned char usbSerialGetLen(void);
     unsigned char isReadyToWrite();
+
+    enum {
+        DH_OK,
+        DH_READING,
+        DH_ERROR_BAD_START,
+        DH_ERROR_INVALID_ST_VAL,
+        DH_ERROR_INVALID_DT_VAL,
+        DH_ERROR_INVALID_VAL,
+        DH_ERROR_INVALID_CHECKSUM,
+        DH_ERROR_TOO_MANY_VALS
+    } DH_ERROR;
+#define MAX_DHT_IDX 90
+
+    void doPrintDhtData();
+    char dhtStart();
+    void printDHT(char printed);
+    void processDHT(unsigned short val);
+
+    enum {
+        IR_OK,
+        IR_ERROR_BUFFER_OVERFLOW,
+    } IR_ERROR;
+#define BUCKETS 512
+    void initIR();
+    void doPrintIR();
+    void printIR(char printed);
+    void processIrOptoData(unsigned short val);
+    void processIrSensorData(unsigned short val);
 
 #ifdef	__cplusplus
 }

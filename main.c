@@ -62,22 +62,7 @@ void _mon_putc(char c) {
     usbSerialPutchar(c);
 }
 
-enum {
-    DH_OK,
-    DH_ERROR_BAD_START,
-    DH_ERROR_TOO_INVALID_VAL,
-    DH_ERROR_TOO_INVALID_CHECKSUM,
-    DH_ERROR_TOO_MANY_VALS
-} DH_ERROR;
-unsigned char dhtStatus = 0;
-unsigned char dhtCnt = 0;
-unsigned char dhtBytes[6];
-unsigned char dhtBytesCnt = 0;
-BOOL printed = FALSE;
-
-unsigned short printIdx = 0xFFFF;
-unsigned short irCnt = 0;
-unsigned long irBuf[1024];
+unsigned char printed = FALSE;
 
 int main(void) {
     int ch = 0;
@@ -106,72 +91,66 @@ int main(void) {
     mPORTCSetBits(BIT_5);
     mPORTCSetPinsDigitalIn(BIT_5);
 
-    ConfigIntTimer45(T45_INT_ON | T45_INT_PRIOR_3);
-    ConfigIntTimer1(T1_INT_ON | T1_INT_PRIOR_2);
-    ConfigIntCapture4(IC_INT_ON | IC_INT_PRIOR_4);
-    ConfigIntCapture2(IC_INT_ON | IC_INT_PRIOR_5);
-
-
-    //mPORTCClearBits(BIT_6);
-    //mPORTCSetPinsDigitalOut(BIT_6);
-
-    
+    //ConfigIntOC1(OC_INT_ON | IC_INT_PRIOR_6);
     // RPC6 == D6 == IN -> IC1 or IC5
-    // RPB1 == A3 ir receiver
+    // A3 == RPB1 ir transistor receiver
     // RPC7 == D7 -> C2OUT
     //mPORTCClearBits(BIT_7);
     //mPORTCSetPinsDigitalOut(BIT_7);
-    //CMP2Open(CMP_ENABLE | CMP_OUTPUT_ENABLE | CMP_EVENT_CHANGE | CMP_POS_INPUT_C2IN_POS | CMP2_NEG_INPUT_IVREF);
-    //PPSOutput(1, RPC7, C2OUT);
-
-
     //CMP2ConfigInt(CMP_INT_ENABLE|CMP_INT_PRIOR_5);
     //INTClearFlag(INT_CMP2);
 
-    /*ConfigIntOC1(OC_INT_ON | OC_INT_PRIOR_8)
-    OpenOC1(OC_ON | OC_IDLE_STOP | OC_TIMER_MODE32 |
-            OC_TIMER2_SRC | OC_PWM_FAULT_PIN_DISABLE | OC_SINGLE_PULSE, 0x0000, 0xFFFF);
-     */
 
-    // two seconds tick, can be done with 23 too.
-    OpenTimer45(T45_ON | T45_SOURCE_INT | T45_PS_1_256, 2 * PS_256_SEC);
+    // priority levels range from 1 (lowest) to 7 (highest).
+    // 28ms for dht
+    ConfigIntTimer1(T1_INT_ON | T1_INT_PRIOR_5);
+    // input capture timer
+    ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_6);
+    // output compare timer
+    ConfigIntTimer3(T3_INT_OFF);
+    // 2 secs blink
+    ConfigIntTimer45(T45_INT_ON | T45_INT_PRIOR_1);
+
+    ConfigIntCapture2(IC_INT_ON | IC_INT_PRIOR_2);
+    ConfigIntCapture4(IC_INT_ON | IC_INT_PRIOR_3);
+    ConfigIntCapture5(IC_INT_ON | IC_INT_PRIOR_4);
+    ConfigIntOC1(OC_INT_OFF);
 
     // 18ms for dht to start measuring.
     OpenTimer1(T1_ON | T1_SOURCE_INT | T1_PS_1_64, 18 * PS_64_MSEC);
-
     // fast timer used for input capture
-    OpenTimer23(T23_ON | T23_SOURCE_INT | T23_PS_1_8, 0xFFFFFFFF);
+    OpenTimer2(T23_ON | T2_SOURCE_INT | T2_PS_1_8, 0xFFFF);
+    // output compare timer (managed by hardware).
+    OpenTimer3(T23_ON | T3_SOURCE_INT | T3_PS_1_8, 0xFFFF);
+    // two seconds tick, can be done with 23 too.
+    OpenTimer45(T45_ON | T45_SOURCE_INT | T45_PS_1_256, 2 * PS_256_SEC);
 
+
+    CMP2Open(CMP_ENABLE | CMP_OUTPUT_ENABLE | CMP_EVENT_CHANGE | CMP_POS_INPUT_C2IN_POS | CMP2_NEG_INPUT_IVREF);
+    PPSOutput(1, RPC7, C2OUT);
+
+    // D6 == RPC6 output of the comparator
+    OpenCapture5(IC_ON | IC_EVERY_FALL_EDGE | IC_FEDGE_FALL | IC_TIMER2_SRC | IC_INT_1CAPTURE | IC_CAP_16BIT);
+    PPSInput(3, IC5, RPC6);
+
+
+    // D5 == dht
     OpenCapture4(IC_ON | IC_SP_EVERY_EDGE | IC_FEDGE_FALL | IC_TIMER2_SRC | IC_INT_1CAPTURE | IC_CAP_16BIT);
     PPSInput(1, IC4, RPC5);
 
-    OpenCapture2(IC_ON | IC_SP_EVERY_EDGE | IC_FEDGE_FALL | IC_TIMER2_SRC | IC_INT_1CAPTURE | IC_CAP_32BIT);
+    // D4 ir receiver
+    OpenCapture2(IC_ON | IC_SP_EVERY_EDGE | IC_FEDGE_FALL | IC_TIMER2_SRC | IC_INT_1CAPTURE | IC_CAP_16BIT);
     PPSInput(4, IC2, RPC4);
 
+
+    // starts low, then at value1 goes high, then at value2 goes low and resets the timer.
+    //OpenOC1(OC_ON | OC_TIMER_MODE16 | OC_TIMER3_SRC | OC_PWM_FAULT_PIN_DISABLE | OC_CONTINUE_PULSE, 25, 50);
+    //PPSOutput(1, RPC0, OC1);
+
+    initIR();
+    // enable priority 1 interrupt
     usbSerialInit();
     while (1) {
-        if (!printed) {
-            printed = TRUE;
-            if (dhtStatus == DH_OK) {
-                printf("Temp: %u.%u [C]\r\n", dhtBytes[2], dhtBytes[3]);
-                printf("Humidity: %u.%u [%%]\r\n", dhtBytes[0], dhtBytes[1]);
-            } else {
-                printf("ERROR %u CNT %u BYTES CNT: %u\r\n", dhtStatus, dhtCnt, dhtBytesCnt);
-            }
-            printf("\r\n");
-        }
-        if (printIdx < irCnt) {
-            printf("%u %lu  ", printIdx, irBuf[printIdx]);
-            if ((printIdx & 0xF) == 0xF) {
-                printf("\r\n");
-            }
-            printIdx++;
-            if (printIdx == irCnt) {
-                //irCnt = 0;
-                printIdx = 0xFFFF;
-                printf("\r\n");
-            }
-        }
         ch = _mon_getc(False);
         if (ch > 0) {
             switch (ch) {
@@ -179,55 +158,51 @@ int main(void) {
                 case ' ':
                     printf("\r\n");
                     break;
+                case 'b':
+                case 'B':
+                    doPrintIR();
+                    break;
+                case 'd':
+                case 'D':
+                    doPrintDhtData();
+                    break;
                 case 'p':
                 case 'P':
-                    printIdx = 0;
-                    break;
-                case 'x':
-                case 'X':
-                    printf("%u\r\n", mPORTCReadBits(BIT_0));
-                    mPORTCSetBits(BIT_0);
-                    printf("%u\r\n", mPORTCReadBits(BIT_0));
-                    break;
-                case 'c':
-                case 'C':
-                    irCnt = 0;
-                    break;
-                case 'l':
-                case 'L':
-                    dhtStatus = DH_OK;
+                    printed = FALSE;
                     break;
                 case 'h':
                 case 'H':
-                    printf("Usage: [x/X] toggle ir, [l/L] clear dht errpr, [p/P] print \r\n");
+                    printf("Usage [b]ucket [d]ht [p]rint\r\n");
                     break;
                 default:
                     break;
             }
         }
+        printIR(printed);
+        printDHT(printed);
+        if (!printed) {
+            printed = TRUE;
+        }
         usbSerialService();
     }
 }
 
-inline void setError(unsigned char err) {
-    dhtStatus = err;
-    mPORTASetBits(BIT_10);
-}
-
-void __ISR(_TIMER_45_VECTOR, IPL3SOFT) Timer45Handler(void) {
+void __ISR(_TIMER_45_VECTOR, ipl1) Timer45Handler(void) {
     if (mT45GetIntFlag()) {
         printed = FALSE;
-        // turn off ir
-        mPORTCClearBits(BIT_0);
         // toggle green
         mPORTBToggleBits(BIT_15);
-        if (dhtStatus == DH_OK) {
 
+        /*if (irToggle) {
+            OpenOC1(OC_ON | OC_TIMER_MODE32 | OC_TIMER3_SRC | OC_PWM_FAULT_PIN_DISABLE | OC_CONTINUE_PULSE, 25, 50);
+        } else {
+            CloseOC1();
+        }
+        irToggle = !irToggle;
+         */
+        if (dhtStart()) {
             mPORTAClearBits(BIT_10);
-            dhtCnt = 0;
-            dhtBytesCnt = 0;
             WriteTimer1(0);
-            WriteTimer23(0);
             mPORTCSetPinsDigitalOut(BIT_5);
             mPORTCClearBits(BIT_5);
             T1CONbits.TON = 1;
@@ -236,7 +211,7 @@ void __ISR(_TIMER_45_VECTOR, IPL3SOFT) Timer45Handler(void) {
     }
 }
 
-void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void) {
+void __ISR(_TIMER_1_VECTOR, ipl5) Timer1Handler(void) {
     if (mT1GetIntFlag()) {
         mPORTCSetBits(BIT_5);
         mPORTCSetPinsDigitalIn(BIT_5);
@@ -245,67 +220,77 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void) {
     }
 }
 
-unsigned short dhtLastCapture;
+ unsigned char timer2Capture2RollOver = 0;
+unsigned char timer2Capture5RollOver = 0;
 
-void __ISR(_INPUT_CAPTURE_4_VECTOR, IPL4SOFT) InputCapture4_Handler(void) {
+void __ISR(_TIMER_2_VECTOR, ipl6) Timer2Handler(void) {
+    if (mT2GetIntFlag()) {
+        timer2Capture2RollOver = (timer2Capture2RollOver++) & 0x7F;
+        timer2Capture5RollOver = (timer2Capture5RollOver++) & 0x7F;
+        mT2ClearIntFlag();
+    }
+}
+
+inline unsigned short getVal(unsigned short c, unsigned short last) {
+    if (c < last) {
+        return (0xFFFF - last) +c;
+    }
+    return c - last;
+}
+
+void __ISR(_INPUT_CAPTURE_4_VECTOR, ipl3) InputCapture4_Handler(void) {
+    static unsigned short dhtLastCapture;
     if (mIC4GetIntFlag()) {
         if (mIC4CaptureReady()) {
             unsigned short c = mIC4ReadCapture();
-            unsigned short val = c - dhtLastCapture;
+            unsigned short val = getVal(c, dhtLastCapture);
             dhtLastCapture = c;
-            if (dhtCnt < 100) {
-                if (dhtStatus == DH_OK) {
-                    if (dhtCnt >= 0 && dhtCnt < 3) {
-                    } else if (dhtCnt == 3 || dhtCnt == 4) {
-                        if (val < 400 || val > 450) {
-                            setError(DH_ERROR_BAD_START);
-                        }
-                    } else if (dhtCnt > 4 && dhtCnt <= 86) {
-                        if ((dhtCnt & 1) == 0) {
-                            if (val > 400 || val < 100) {
-                                setError(DH_ERROR_TOO_INVALID_VAL);
-                            } else {
-                                unsigned char idx = (dhtBytesCnt >> 3);
-                                if (val < 235) {
-                                    // zero
-                                    dhtBytes[idx] = dhtBytes[idx] << 1;
-                                } else {
-                                    // one
-                                    dhtBytes[idx] = (dhtBytes[idx] << 1) | 1;
-                                }
-                                dhtBytesCnt++;
-                            }
-                        }
-                        if (dhtCnt == 86) {
-                            unsigned char ch = dhtBytes[0] + dhtBytes[1] + dhtBytes[2] + dhtBytes[3];
-                            if (ch != dhtBytes[4]) {
-                                setError(DH_ERROR_TOO_INVALID_CHECKSUM);
-                            }
-                        }
-                    } else {
-                        setError(DH_ERROR_TOO_MANY_VALS);
-                    }
-                }
-                dhtCnt++;
-            }
+            processDHT(val);
         }
         mIC4ClearIntFlag();
     }
 }
 
-unsigned long irLastCapture;
-
-void __ISR(_INPUT_CAPTURE_2_VECTOR, IPL5SOFT) InputCapture2_Handler(void) {
+void __ISR(_INPUT_CAPTURE_2_VECTOR, ipl2) InputCapture2_Handler(void) {
+    static unsigned long irLastCapture;
     if (mIC2GetIntFlag()) {
         if (mIC2CaptureReady()) {
-            unsigned long c = mIC2ReadCapture();
-            unsigned long val = c - irLastCapture;
-            irLastCapture = c;
-            if (irCnt < 1000) {
-                irBuf[irCnt] = val;
-                irCnt++;
+            unsigned short c = mIC2ReadCapture();
+            unsigned short val;
+            if (timer2Capture2RollOver < 2) {
+                val = getVal(c, irLastCapture);
+                irLastCapture = c;
+            } else {
+                val = 0;
             }
+            timer2Capture2RollOver = 0;
+            processIrSensorData(val);
         }
         mIC2ClearIntFlag();
     }
 }
+
+void __ISR(_INPUT_CAPTURE_5_VECTOR, ipl4) InputCapture5_Handler(void) {
+    static unsigned long freqLastCapture;
+    if (mIC5GetIntFlag()) {
+        if (mIC5CaptureReady()) {
+            unsigned short c = mIC5ReadCapture();
+            if (timer2Capture5RollOver < 2) {
+                unsigned short val = getVal(c, freqLastCapture);
+                freqLastCapture = c;
+                processIrOptoData(val);
+            }
+            timer2Capture5RollOver = 0;
+        }
+        mIC5ClearIntFlag();
+    }
+}
+
+void __ISR(_OUTPUT_COMPARE_1_VECTOR, IPL6SOFT) InputCompare1_Handler(void) {
+    if (mOC1GetIntFlag()) {
+        // turn off ir
+        //mPORTCClearBits(BIT_0);
+        mOC1ClearIntFlag();
+    }
+}
+
