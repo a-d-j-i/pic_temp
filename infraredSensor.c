@@ -22,7 +22,6 @@ inline void doPrintIR() {
 }
 
 inline void printIR(char printed) {
-    unsigned short data;
     if (bktIdx == 0) {
         int i;
         maxBkt = 0;
@@ -69,18 +68,21 @@ inline void printIR(char printed) {
         }
     } else {
         if (irStatus == IR_OK) {
+            unsigned long data;
+
             // critiscal section
             INTDisableInterrupts();
             unsigned char t = (circularBufRemove(&irInputCB, &data));
             INTEnableInterrupts();
             if (t) {
                 if (data == 0) {
+                    printf("\r\n");
                     irCnt = 0;
                 }
                 if ((irCnt & 0xF) == 0) {
                     printf("\r\n %u : ", irCnt);
                 }
-                printf("%u ", data);
+                printf("%lu ", data);
                 irCnt++;
             }
         }
@@ -95,8 +97,12 @@ inline void processIrOptoData(unsigned short val) {
         freqBuckets[val]++;
     }
 }
+unsigned char lastPush = 0;
 
-inline void processIrSensorData(unsigned short val) {
+void processIrSensorData(unsigned long val) {
+    if (val > MAX_SENSOR_TIME) {
+        val = 0;
+    }
     if (irStatus == IR_OK) {
         if (!circularBufAdd(&irInputCB, val)) {
             irStatus = IR_ERROR_BUFFER_OVERFLOW;

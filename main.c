@@ -220,7 +220,7 @@ void __ISR(_TIMER_1_VECTOR, ipl5) Timer1Handler(void) {
     }
 }
 
- unsigned char timer2Capture2RollOver = 0;
+unsigned char timer2Capture2RollOver = 0;
 unsigned char timer2Capture5RollOver = 0;
 
 void __ISR(_TIMER_2_VECTOR, ipl6) Timer2Handler(void) {
@@ -256,13 +256,8 @@ void __ISR(_INPUT_CAPTURE_2_VECTOR, ipl2) InputCapture2_Handler(void) {
     if (mIC2GetIntFlag()) {
         if (mIC2CaptureReady()) {
             unsigned short c = mIC2ReadCapture();
-            unsigned short val;
-            if (timer2Capture2RollOver < 2) {
-                val = getVal(c, irLastCapture);
-                irLastCapture = c;
-            } else {
-                val = 0;
-            }
+            unsigned long val = getVal(c, irLastCapture) | (timer2Capture2RollOver << 16);
+            irLastCapture = c;
             timer2Capture2RollOver = 0;
             processIrSensorData(val);
         }

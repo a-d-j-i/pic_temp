@@ -5,7 +5,7 @@ void circularBufInit(CircularBuffer*buf) {
     buf->tail = 0;
 }
 
-unsigned char circularBufAdd(CircularBuffer*buf, unsigned short data) {
+unsigned char circularBufAdd(CircularBuffer*buf, unsigned long data) {
     unsigned short l;
     l = (buf->head + 1) & RBUF_MASK;
     if (l == buf->tail) {
@@ -16,7 +16,7 @@ unsigned char circularBufAdd(CircularBuffer*buf, unsigned short data) {
     return 1;
 }
 
-unsigned char circularBufRemove(CircularBuffer*buf, unsigned short *data) {
+unsigned char circularBufRemove(CircularBuffer*buf, unsigned long *data) {
     if (buf->head == buf->tail) {
         return 0;
     }
