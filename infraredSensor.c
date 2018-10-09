@@ -1,24 +1,28 @@
 #include "main.h"
-#include "circularBuf.h"
 
 unsigned char irStatus;
-unsigned char irCnt = 0;
-CircularBuffer irInputCB;
-int bktIdx = BUCKETS;
+unsigned short bktIdx = FREQ_BUCKETS;
 unsigned long maxBkt;
 unsigned long maxBktVal;
 unsigned long freqTickSum = 0;
 unsigned long freqCnt = 0;
-unsigned long freqBuckets[BUCKETS + 1];
+unsigned long freqBuckets[FREQ_BUCKETS + 1];
+
+unsigned short timeIdx = TIME_BUCKETS;
+unsigned long timeCnt = 0;
+unsigned long timeBuckets[TIME_BUCKETS + 1];
 
 inline void initIR() {
-    circularBufInit(&irInputCB);
 }
 
 inline void doPrintIR() {
-    if (bktIdx >= BUCKETS) {
+    if (bktIdx >= FREQ_BUCKETS) {
         bktIdx = 0;
     }
+}
+
+inline void doPrintSensor() {
+    timeIdx = 0;
 }
 
 inline void printIR(char printed) {
@@ -39,7 +43,7 @@ inline void printIR(char printed) {
             printf("%6u ", i);
         }
     }
-    if (bktIdx < BUCKETS) {
+    if (bktIdx < FREQ_BUCKETS) {
         if ((bktIdx & 0xF) == 0) {
             printf("\r\n %4u : ", bktIdx);
         }
@@ -47,9 +51,9 @@ inline void printIR(char printed) {
             maxBkt = bktIdx;
             maxBktVal = freqBuckets[bktIdx];
         }
-        printf("%6u ", freqBuckets[bktIdx]);
+        printf("%6lu ", freqBuckets[bktIdx]);
         bktIdx++;
-        if (bktIdx >= BUCKETS) {
+        if (bktIdx >= FREQ_BUCKETS) {
             printf("\r\n");
             if (maxBkt > 0) {
                 unsigned long f = ldiv(5000000, maxBkt).quot;
@@ -61,36 +65,26 @@ inline void printIR(char printed) {
         }
     }
 
+    if (timeIdx < TIME_BUCKETS && timeBuckets[timeIdx] != 0) {
+        if ((timeIdx & 0xF) == 0) {
+            printf("\r\n %4u : ", timeIdx);
+        }
+        printf("%6lu ", timeBuckets[timeIdx]);
+        timeIdx++;
+        if (timeIdx >= TIME_BUCKETS) {
+            printf("\r\n");
+        }
+    }
     if (!printed) {
         if (irStatus != IR_OK) {
             printf("IRE %u\r\n", irStatus);
-            irStatus = DH_OK;
-        }
-    } else {
-        if (irStatus == IR_OK) {
-            unsigned long data;
-
-            // critiscal section
-            INTDisableInterrupts();
-            unsigned char t = (circularBufRemove(&irInputCB, &data));
-            INTEnableInterrupts();
-            if (t) {
-                if (data == 0) {
-                    printf("\r\n");
-                    irCnt = 0;
-                }
-                if ((irCnt & 0xF) == 0) {
-                    printf("\r\n %u : ", irCnt);
-                }
-                printf("%lu ", data);
-                irCnt++;
-            }
+            irStatus = IR_OK;
         }
     }
 }
 
 inline void processIrOptoData(unsigned short val) {
-    if (val < BUCKETS) {
+    if (val < FREQ_BUCKETS) {
         mPORTAToggleBits(BIT_10);
         freqTickSum += val;
         freqCnt++;
@@ -100,13 +94,20 @@ inline void processIrOptoData(unsigned short val) {
 unsigned char lastPush = 0;
 
 void processIrSensorData(unsigned long val) {
-    if (val > MAX_SENSOR_TIME) {
-        val = 0;
-    }
     if (irStatus == IR_OK) {
-        if (!circularBufAdd(&irInputCB, val)) {
+        if (val > MAX_SENSOR_TIME) {
+            timeCnt = 0;
+        }
+        if (timeCnt < TIME_BUCKETS) {
+            mPORTAToggleBits(BIT_10);
+            timeBuckets[timeCnt] = val;
+            if (timeCnt < TIME_BUCKETS - 1) {
+                timeBuckets[timeCnt + 1] = 0;
+            }
+            timeCnt++;
+        } else {
             irStatus = IR_ERROR_BUFFER_OVERFLOW;
             mPORTASetBits(BIT_10);
-        };
+        }
     }
 }

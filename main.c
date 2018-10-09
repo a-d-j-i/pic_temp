@@ -162,6 +162,10 @@ int main(void) {
                 case 'B':
                     doPrintIR();
                     break;
+                case 't':
+                case 'T':
+                    doPrintSensor();
+                    break;
                 case 'd':
                 case 'D':
                     doPrintDhtData();
@@ -172,7 +176,7 @@ int main(void) {
                     break;
                 case 'h':
                 case 'H':
-                    printf("Usage [b]ucket [d]ht [p]rint\r\n");
+                    printf("Usage ir [b]ucket, ir [t]ime, [d]ht, [p]rint\r\n");
                     break;
                 default:
                     break;
@@ -220,22 +224,22 @@ void __ISR(_TIMER_1_VECTOR, ipl5) Timer1Handler(void) {
     }
 }
 
-unsigned char timer2Capture2RollOver = 0;
-unsigned char timer2Capture5RollOver = 0;
+unsigned short timer2Capture2RollOver = 0;
+unsigned short timer2Capture5RollOver = 0;
 
 void __ISR(_TIMER_2_VECTOR, ipl6) Timer2Handler(void) {
     if (mT2GetIntFlag()) {
-        timer2Capture2RollOver = (timer2Capture2RollOver++) & 0x7F;
-        timer2Capture5RollOver = (timer2Capture5RollOver++) & 0x7F;
+        timer2Capture2RollOver = (timer2Capture2RollOver++) & 0x7FFF;
+        timer2Capture5RollOver = (timer2Capture5RollOver++) & 0x7FFF;
         mT2ClearIntFlag();
     }
 }
 
 inline unsigned short getVal(unsigned short c, unsigned short last) {
     if (c < last) {
-        return (0xFFFF - last) +c;
+        return ((0xFFFF - last) + c);
     }
-    return c - last;
+    return (c - last);
 }
 
 void __ISR(_INPUT_CAPTURE_4_VECTOR, ipl3) InputCapture4_Handler(void) {
@@ -256,10 +260,13 @@ void __ISR(_INPUT_CAPTURE_2_VECTOR, ipl2) InputCapture2_Handler(void) {
     if (mIC2GetIntFlag()) {
         if (mIC2CaptureReady()) {
             unsigned short c = mIC2ReadCapture();
-            unsigned long val = getVal(c, irLastCapture) | (timer2Capture2RollOver << 16);
-            irLastCapture = c;
-            timer2Capture2RollOver = 0;
-            processIrSensorData(val);
+            unsigned long val = c | (timer2Capture2RollOver << 16);
+            if (val  < irLastCapture) {
+                processIrSensorData(((0xFFFFFFFF - irLastCapture) + val));
+            } else {
+                processIrSensorData(val - irLastCapture);
+            }
+            irLastCapture = val;
         }
         mIC2ClearIntFlag();
     }

@@ -29,8 +29,6 @@
       <itemPath>../usb_serial.c</itemPath>
       <itemPath>../test.c</itemPath>
       <itemPath>../main.c</itemPath>
-      <itemPath>../circularBuf.c</itemPath>
-      <itemPath>../circularBuf.h</itemPath>
       <itemPath>../dht.c</itemPath>
       <itemPath>../infraredSensor.c</itemPath>
     </logicalFolder>

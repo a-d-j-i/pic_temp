@@ -56,9 +56,11 @@ extern "C" {
 // 50ms 0x3FFFF == 262143 == 52428.6usec
 #define MAX_SENSOR_TIME 0x3FFFF
 
-#define BUCKETS 512
+#define FREQ_BUCKETS 511
+#define TIME_BUCKETS 511
     void initIR();
     void doPrintIR();
+    void doPrintSensor();
     void printIR(char printed);
     void processIrOptoData(unsigned short val);
     void processIrSensorData(unsigned long val);
