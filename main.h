@@ -53,7 +53,7 @@ extern "C" {
         IR_ERROR_BUFFER_OVERFLOW,
     } IR_ERROR;
 
-// 50ms 0x3FFFF == 262143 == 52428.6usec
+    // 50ms 0x3FFFF == 262143 == 52428.6usec
 #define MAX_SENSOR_TIME 0x3FFFF
 
 #define FREQ_BUCKETS 511
@@ -64,6 +64,12 @@ extern "C" {
     void printIR(char printed);
     void processIrOptoData(unsigned short val);
     void processIrSensorData(unsigned long val);
+    unsigned short getMaxBkt();
+
+
+    void setFreq(unsigned short period);
+    void runTime();
+    void irDoRun();
 
 #ifdef	__cplusplus
 }

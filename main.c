@@ -45,8 +45,6 @@
 #define PS_64_MSEC (PS_8_MSEC / 8)
 #define PS_64_SEC (1000 * PS_64_MSEC)
 
-#define PS_256_SEC (125 * 250 * 5)
-
 int _mon_getc(int canblock) {
     int ch;
     ch = usbSerialGetchar();
@@ -91,7 +89,6 @@ int main(void) {
     mPORTCSetBits(BIT_5);
     mPORTCSetPinsDigitalIn(BIT_5);
 
-    //ConfigIntOC1(OC_INT_ON | IC_INT_PRIOR_6);
     // RPC6 == D6 == IN -> IC1 or IC5
     // A3 == RPB1 ir transistor receiver
     // RPC7 == D7 -> C2OUT
@@ -103,13 +100,15 @@ int main(void) {
 
     // priority levels range from 1 (lowest) to 7 (highest).
     // 28ms for dht
-    ConfigIntTimer1(T1_INT_ON | T1_INT_PRIOR_5);
+    ConfigIntTimer1(T1_INT_ON | T1_INT_PRIOR_1 | T1_INT_SUB_PRIOR_2);
     // input capture timer
-    ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_6);
+    ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_5);
     // output compare timer
     ConfigIntTimer3(T3_INT_OFF);
     // 2 secs blink
-    ConfigIntTimer45(T45_INT_ON | T45_INT_PRIOR_1);
+    ConfigIntTimer4(T4_INT_ON | T4_INT_PRIOR_1 | T1_INT_SUB_PRIOR_3);
+    // transmit
+    ConfigIntTimer5(T5_INT_ON | T5_INT_PRIOR_6);
 
     ConfigIntCapture2(IC_INT_ON | IC_INT_PRIOR_2);
     ConfigIntCapture4(IC_INT_ON | IC_INT_PRIOR_3);
@@ -119,12 +118,13 @@ int main(void) {
     // 18ms for dht to start measuring.
     OpenTimer1(T1_ON | T1_SOURCE_INT | T1_PS_1_64, 18 * PS_64_MSEC);
     // fast timer used for input capture
-    OpenTimer2(T23_ON | T2_SOURCE_INT | T2_PS_1_8, 0xFFFF);
+    OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_8, 0xFFFF);
     // output compare timer (managed by hardware).
-    OpenTimer3(T23_ON | T3_SOURCE_INT | T3_PS_1_8, 0xFFFF);
-    // two seconds tick, can be done with 23 too.
-    OpenTimer45(T45_ON | T45_SOURCE_INT | T45_PS_1_256, 2 * PS_256_SEC);
-
+    OpenTimer3(T3_ON | T3_SOURCE_INT | T3_PS_1_8, 124);
+    // two seconds tick.
+    OpenTimer4(T4_ON | T4_SOURCE_INT | T4_PS_1_64, 100 * PS_64_MSEC);
+    // transmit
+    OpenTimer5(T5_OFF | T5_SOURCE_INT | T5_PS_1_8, 0xFFFF);
 
     CMP2Open(CMP_ENABLE | CMP_OUTPUT_ENABLE | CMP_EVENT_CHANGE | CMP_POS_INPUT_C2IN_POS | CMP2_NEG_INPUT_IVREF);
     PPSOutput(1, RPC7, C2OUT);
@@ -144,8 +144,8 @@ int main(void) {
 
 
     // starts low, then at value1 goes high, then at value2 goes low and resets the timer.
-    //OpenOC1(OC_ON | OC_TIMER_MODE16 | OC_TIMER3_SRC | OC_PWM_FAULT_PIN_DISABLE | OC_CONTINUE_PULSE, 25, 50);
-    //PPSOutput(1, RPC0, OC1);
+    OpenOC1(OC_OFF | OC_TIMER_MODE16 | OC_TIMER3_SRC | OC_CONTINUE_PULSE, 0, 120);
+    PPSOutput(1, RPC0, OC1);
 
     initIR();
     // enable priority 1 interrupt
@@ -153,6 +153,7 @@ int main(void) {
     while (1) {
         ch = _mon_getc(False);
         if (ch > 0) {
+            printf("\r\n- %u -\r\n", ch);
             switch (ch) {
                 case 13:
                 case ' ':
@@ -174,9 +175,21 @@ int main(void) {
                 case 'P':
                     printed = FALSE;
                     break;
+                case 'i':
+                case 'I':
+                    OC1CONINV = _OC1CON_ON_MASK;
+                    break;
+                case 's':
+                case 'S':
+                    setFreq(getMaxBkt());
+                    break;
+                case 'r':
+                case 'R':
+                    irDoRun();
+                    break;
                 case 'h':
                 case 'H':
-                    printf("Usage ir [b]ucket, ir [t]ime, [d]ht, [p]rint\r\n");
+                    printf("Usage ir [b]ucket, ir [t]ime, [d]ht, [p]rint [i]r led [s]et freq [r]un\r\n");
                     break;
                 default:
                     break;
@@ -191,31 +204,33 @@ int main(void) {
     }
 }
 
-void __ISR(_TIMER_45_VECTOR, ipl1) Timer45Handler(void) {
-    if (mT45GetIntFlag()) {
-        printed = FALSE;
-        // toggle green
-        mPORTBToggleBits(BIT_15);
 
-        /*if (irToggle) {
-            OpenOC1(OC_ON | OC_TIMER_MODE32 | OC_TIMER3_SRC | OC_PWM_FAULT_PIN_DISABLE | OC_CONTINUE_PULSE, 25, 50);
-        } else {
-            CloseOC1();
+// 100msec/tick
+unsigned short timer4rollover = 0;
+
+void __ISR(_TIMER_4_VECTOR, ipl1) Timer4Handler(void) {
+    if (mT4GetIntFlag()) {
+        timer4rollover++;
+        if (timer4rollover > (2 * 10)) {
+            timer4rollover = 0;
+            printed = FALSE;
+            // toggle green
+            mPORTBToggleBits(BIT_15);
+
+            if (dhtStart()) {
+                mPORTAClearBits(BIT_10);
+                WriteTimer1(0);
+                mPORTCSetPinsDigitalOut(BIT_5);
+                mPORTCClearBits(BIT_5);
+                T1CONbits.TON = 1;
+            }
         }
-        irToggle = !irToggle;
-         */
-        if (dhtStart()) {
-            mPORTAClearBits(BIT_10);
-            WriteTimer1(0);
-            mPORTCSetPinsDigitalOut(BIT_5);
-            mPORTCClearBits(BIT_5);
-            T1CONbits.TON = 1;
-        }
-        mT45ClearIntFlag();
+        mT4ClearIntFlag();
     }
 }
+// transmit
 
-void __ISR(_TIMER_1_VECTOR, ipl5) Timer1Handler(void) {
+void __ISR(_TIMER_1_VECTOR, ipl1) Timer1Handler(void) {
     if (mT1GetIntFlag()) {
         mPORTCSetBits(BIT_5);
         mPORTCSetPinsDigitalIn(BIT_5);
@@ -223,11 +238,18 @@ void __ISR(_TIMER_1_VECTOR, ipl5) Timer1Handler(void) {
         mT1ClearIntFlag();
     }
 }
+void __ISR(_TIMER_5_VECTOR, ipl6) Timer5Handler(void) {
+    if (mT5GetIntFlag()) {
+        runTime();
+        mT5ClearIntFlag();
+    }
+}
+
 
 unsigned short timer2Capture2RollOver = 0;
 unsigned short timer2Capture5RollOver = 0;
 
-void __ISR(_TIMER_2_VECTOR, ipl6) Timer2Handler(void) {
+void __ISR(_TIMER_2_VECTOR, ipl5) Timer2Handler(void) {
     if (mT2GetIntFlag()) {
         timer2Capture2RollOver = (timer2Capture2RollOver++) & 0x7FFF;
         timer2Capture5RollOver = (timer2Capture5RollOver++) & 0x7FFF;
@@ -261,7 +283,7 @@ void __ISR(_INPUT_CAPTURE_2_VECTOR, ipl2) InputCapture2_Handler(void) {
         if (mIC2CaptureReady()) {
             unsigned short c = mIC2ReadCapture();
             unsigned long val = c | (timer2Capture2RollOver << 16);
-            if (val  < irLastCapture) {
+            if (val < irLastCapture) {
                 processIrSensorData(((0xFFFFFFFF - irLastCapture) + val));
             } else {
                 processIrSensorData(val - irLastCapture);
@@ -287,12 +309,12 @@ void __ISR(_INPUT_CAPTURE_5_VECTOR, ipl4) InputCapture5_Handler(void) {
         mIC5ClearIntFlag();
     }
 }
-
-void __ISR(_OUTPUT_COMPARE_1_VECTOR, IPL6SOFT) InputCompare1_Handler(void) {
+/*
+void __ISR(_OUTPUT_COMPARE_1_VECTOR, ipl5) InputCompare1_Handler(void) {
     if (mOC1GetIntFlag()) {
         // turn off ir
         //mPORTCClearBits(BIT_0);
         mOC1ClearIntFlag();
     }
 }
-
+*/
