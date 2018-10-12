@@ -88,7 +88,7 @@ inline void printIR(char printed) {
 }
 
 inline unsigned short getMaxBkt() {
-    /*unsigned short i;
+    unsigned short i;
     unsigned long maxVal = 0;
     unsigned short maxBkt = 0;
     for (i = 0; i < FREQ_BUCKETS; i++) {
@@ -98,8 +98,8 @@ inline unsigned short getMaxBkt() {
         }
     }
     return maxBkt;
-     */
-    return 124;
+
+    //return 124;
 }
 
 inline void processIrOptoData(unsigned short val) {
